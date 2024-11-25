@@ -2,9 +2,7 @@ package http
 
 import (
 	"crypto/tls"
-	"errors"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -15,38 +13,39 @@ import (
 	killgrave "github.com/friendsofgo/killgrave/internal"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
-	log.SetOutput(ioutil.Discard)
+	log.SetOutput(io.Discard)
 	os.Exit(m.Run())
 }
 
 func TestServer_Build(t *testing.T) {
-	var serverData = []struct {
-		name   string
-		server Server
-		err    error
-	}{
-		{"imposter directory not found", NewServer("failImposterPath", nil, &http.Server{}, &Proxy{}, false), errors.New("hello")},
-		{"malformatted json", NewServer("test/testdata/malformatted_imposters", nil, &http.Server{}, &Proxy{}, false), nil},
-		{"valid imposter", NewServer("test/testdata/imposters", mux.NewRouter(), &http.Server{}, &Proxy{}, false), nil},
+	newServer := func(fs ImposterFs) Server {
+		return NewServer(mux.NewRouter(), &http.Server{}, &Proxy{}, false, fs)
 	}
 
-	for _, tt := range serverData {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.server.Build()
+	testCases := map[string]struct {
+		impostersPath string
+		shouldFail    bool
+	}{
+		"imposters with malformed json": {impostersPath: "test/testdata/malformed_imposters"},
+		"valid imposters":               {impostersPath: "test/testdata/imposters"},
+	}
 
-			if err == nil {
-				if tt.err != nil {
-					t.Fatalf("expected an error and got nil")
-				}
-			}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			fs, err := NewImposterFS(tc.impostersPath)
+			require.NoError(t, err)
 
-			if err != nil {
-				if tt.err == nil {
-					t.Fatalf("not expected any erros and got %+v", err)
-				}
+			srv := newServer(fs)
+			err = srv.Build()
+
+			if tc.shouldFail {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
 			}
 		})
 	}
@@ -57,18 +56,23 @@ func TestBuildProxyMode(t *testing.T) {
 		io.WriteString(w, "Proxied")
 	}))
 	defer proxyServer.Close()
-	makeServer := func(mode killgrave.ProxyMode) (*Server, func()) {
+
+	makeServer := func(mode killgrave.ProxyMode) (*Server, func() error) {
 		router := mux.NewRouter()
 		httpServer := &http.Server{Handler: router}
+
 		proxyServer, err := NewProxy(proxyServer.URL, mode)
-		if err != nil {
-			t.Fatal("NewProxy failed: ", err)
-		}
-		server := NewServer("test/testdata/imposters", router, httpServer, proxyServer, false)
-		return &server, func() {
-			httpServer.Close()
+		require.NoError(t, err)
+
+		imposterFs, err := NewImposterFS("test/testdata/imposters")
+		require.NoError(t, err)
+
+		server := NewServer(router, httpServer, proxyServer, false, imposterFs)
+		return &server, func() error {
+			return httpServer.Close()
 		}
 	}
+
 	testCases := map[string]struct {
 		mode   killgrave.ProxyMode
 		url    string
@@ -117,14 +121,10 @@ func TestBuildProxyMode(t *testing.T) {
 
 			s.router.ServeHTTP(w, req)
 			response := w.Result()
-			body, _ := ioutil.ReadAll(response.Body)
+			body, _ := io.ReadAll(response.Body)
 
-			if string(body) != tc.body {
-				t.Errorf("Expected body: %v, got: %s", tc.body, body)
-			}
-			if response.StatusCode != tc.status {
-				t.Errorf("Expected status code: %v, got: %v", tc.status, response.StatusCode)
-			}
+			assert.Equal(t, tc.body, string(body))
+			assert.Equal(t, tc.status, response.StatusCode)
 		})
 	}
 }
@@ -141,15 +141,19 @@ func TestBuildSecureMode(t *testing.T) {
 		httpServer := &http.Server{Handler: router, Addr: ":4430", TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		}}
+
 		proxyServer, err := NewProxy(proxyServer.URL, mode)
-		if err != nil {
-			t.Fatal("NewProxy failed: ", err)
-		}
-		server := NewServer("test/testdata/imposters_secure", router, httpServer, proxyServer, true)
+		require.NoError(t, err)
+
+		imposterFs, err := NewImposterFS("test/testdata/imposters_secure")
+		require.NoError(t, err)
+
+		server := NewServer(router, httpServer, proxyServer, true, imposterFs)
 		return &server, func() {
 			httpServer.Close()
 		}
 	}
+
 	testCases := map[string]struct {
 		mode   killgrave.ProxyMode
 		url    string
@@ -178,9 +182,7 @@ func TestBuildSecureMode(t *testing.T) {
 			defer cleanUp()
 
 			err := s.Build()
-			if err != nil {
-				t.Fatalf("Non expected error trying to build server: %v", err)
-			}
+			assert.Nil(t, err)
 			s.Run()
 
 			client := tc.server.Client()
@@ -198,7 +200,7 @@ func TestBuildSecureMode(t *testing.T) {
 
 				defer response.Body.Close()
 
-				body, err := ioutil.ReadAll(response.Body)
+				body, err := io.ReadAll(response.Body)
 				if err != nil {
 					return false
 				}

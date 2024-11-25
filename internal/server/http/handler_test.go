@@ -2,11 +2,14 @@ package http
 
 import (
 	"bytes"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestImposterHandler(t *testing.T) {
@@ -37,7 +40,7 @@ func TestImposterHandler(t *testing.T) {
 
 	f, _ := os.Open(bodyFile)
 	defer f.Close()
-	expectedBodyFileData, _ := ioutil.ReadAll(f)
+	expectedBodyFileData, _ := io.ReadAll(f)
 
 	var dataTest = []struct {
 		name         string
@@ -45,29 +48,22 @@ func TestImposterHandler(t *testing.T) {
 		expectedBody string
 		statusCode   int
 	}{
-		{"valid imposter with body", Imposter{Request: validRequest, Response: Response{Status: http.StatusOK, Headers: &headers, Body: body}}, body, http.StatusOK},
-		{"valid imposter with bodyFile", Imposter{Request: validRequest, Response: Response{Status: http.StatusOK, Headers: &headers, BodyFile: &bodyFile}}, string(expectedBodyFileData), http.StatusOK},
-		{"valid imposter with not exists bodyFile", Imposter{Request: validRequest, Response: Response{Status: http.StatusOK, Headers: &headers, BodyFile: &bodyFileFake}}, "", http.StatusOK},
+		{"valid imposter with body", Imposter{Request: validRequest, Response: Responses{{Status: http.StatusOK, Headers: &headers, Body: body}}}, body, http.StatusOK},
+		{"valid imposter with bodyFile", Imposter{Request: validRequest, Response: Responses{{Status: http.StatusOK, Headers: &headers, BodyFile: &bodyFile}}}, string(expectedBodyFileData), http.StatusOK},
+		{"valid imposter with not exists bodyFile", Imposter{Request: validRequest, Response: Responses{{Status: http.StatusOK, Headers: &headers, BodyFile: &bodyFileFake}}}, "", http.StatusOK},
 	}
 
 	for _, tt := range dataTest {
 		t.Run(tt.name, func(t *testing.T) {
 			req, err := http.NewRequest("POST", "/gophers", bytes.NewBuffer(bodyRequest))
-			if err != nil {
-				t.Fatalf("could not created request: %v", err)
-			}
+			assert.NoError(t, err)
 
 			rec := httptest.NewRecorder()
-			handler := http.HandlerFunc(ImposterHandler(tt.imposter))
+			handler := ImposterHandler(tt.imposter)
 
 			handler.ServeHTTP(rec, req)
-			if status := rec.Code; status != tt.statusCode {
-				t.Errorf("handler expected %d code and got: %d code", tt.statusCode, status)
-			}
-
-			if rec.Body.String() != tt.expectedBody {
-				t.Errorf("handler expected %s body and got: %s body", tt.expectedBody, rec.Body.String())
-			}
+			assert.Equal(t, rec.Code, tt.statusCode)
+			assert.Equal(t, tt.expectedBody, rec.Body.String())
 
 		})
 	}
@@ -90,23 +86,78 @@ func TestInvalidRequestWithSchema(t *testing.T) {
 		statusCode int
 		request    []byte
 	}{
-		{"valid request no schema", Imposter{Request: Request{Method: "POST", Endpoint: "/gophers"}, Response: Response{Status: http.StatusOK, Body: "test ok"}}, http.StatusOK, validRequest},
+		{"valid request no schema", Imposter{Request: Request{Method: "POST", Endpoint: "/gophers"}, Response: Responses{{Status: http.StatusOK, Body: "test ok"}}}, http.StatusOK, validRequest},
 	}
 
 	for _, tt := range dataTest {
 
 		t.Run(tt.name, func(t *testing.T) {
 			req, err := http.NewRequest("POST", "/gophers", bytes.NewBuffer(tt.request))
-			if err != nil {
-				t.Fatalf("could not created request: %v", err)
-			}
+			assert.Nil(t, err)
 			rec := httptest.NewRecorder()
-			handler := http.HandlerFunc(ImposterHandler(tt.imposter))
+			handler := ImposterHandler(tt.imposter)
 
 			handler.ServeHTTP(rec, req)
-			if status := rec.Code; status != tt.statusCode {
-				t.Fatalf("handler expected %d code and got: %d code", tt.statusCode, status)
-			}
+
+			assert.Equal(t, tt.statusCode, rec.Code)
 		})
 	}
+}
+
+func TestImposterHandler_MultipleRequests(t *testing.T) {
+	req, err := http.NewRequest("POST", "/gophers", bytes.NewBuffer([]byte(`{
+		"data": {
+			"type": "gophers",
+		  "attributes": {
+			"name": "Zebediah",
+			"color": "Purple"
+		  }
+		}
+	  }`)))
+	require.NoError(t, err)
+
+	t.Run("created then conflict", func(t *testing.T) {
+		imp := Imposter{
+			Request: Request{Method: "POST", Endpoint: "/gophers"},
+			Response: Responses{
+				{Status: http.StatusCreated, Body: "Created"},
+				{Status: http.StatusConflict, Body: "Conflict"},
+			},
+		}
+
+		handler := ImposterHandler(imp)
+
+		// First request
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusCreated, rec.Code)
+		assert.Equal(t, "Created", rec.Body.String())
+
+		// Second request
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusConflict, rec.Code)
+		assert.Equal(t, "Conflict", rec.Body.String())
+	})
+
+	t.Run("idempotent", func(t *testing.T) {
+		handler := ImposterHandler(Imposter{
+			Request: Request{Method: "POST", Endpoint: "/gophers"},
+			Response: Responses{
+				{Status: http.StatusAccepted, Body: "Accepted"},
+			},
+		})
+
+		// First request
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusAccepted, rec.Code)
+		assert.Equal(t, "Accepted", rec.Body.String())
+
+		// Second request
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusAccepted, rec.Code)
+		assert.Equal(t, "Accepted", rec.Body.String())
+	})
 }

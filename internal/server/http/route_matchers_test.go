@@ -3,18 +3,19 @@ package http
 import (
 	"bytes"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"testing"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMatcherBySchema(t *testing.T) {
-	bodyA := ioutil.NopCloser(bytes.NewReader([]byte("{\"type\": \"gopher\"}")))
-	bodyB := ioutil.NopCloser(bytes.NewReader([]byte("{\"type\": \"cat\"}")))
-	emptyBody := ioutil.NopCloser(bytes.NewReader([]byte("")))
-	wrongBody := ioutil.NopCloser(errReader(0))
+	bodyA := io.NopCloser(bytes.NewReader([]byte("{\"type\": \"gopher\"}")))
+	bodyB := io.NopCloser(bytes.NewReader([]byte("{\"type\": \"cat\"}")))
+	emptyBody := io.NopCloser(bytes.NewReader([]byte("")))
+	wrongBody := io.NopCloser(errReader(0))
 
 	schemaGopherFile := "test/testdata/imposters/schemas/type_gopher.json"
 	schemaCatFile := "test/testdata/imposters/schemas/type_cat.json"
@@ -46,7 +47,7 @@ func TestMatcherBySchema(t *testing.T) {
 
 	httpRequestA := &http.Request{Body: bodyA}
 	httpRequestB := &http.Request{Body: bodyB}
-	okResponse := Response{Status: http.StatusOK}
+	okResponse := Responses{{Status: http.StatusOK}}
 
 	var matcherData = map[string]struct {
 		fn  mux.MatcherFunc
@@ -55,7 +56,7 @@ func TestMatcherBySchema(t *testing.T) {
 	}{
 		"correct request schema":               {MatcherBySchema(Imposter{Request: requestWithSchema, Response: okResponse}), httpRequestA, true},
 		"imposter without request schema":      {MatcherBySchema(Imposter{Request: requestWithoutSchema, Response: okResponse}), httpRequestA, true},
-		"malformatted schema file":             {MatcherBySchema(Imposter{Request: requestWithWrongSchema, Response: okResponse}), httpRequestA, false},
+		"malformed schema file":                {MatcherBySchema(Imposter{Request: requestWithWrongSchema, Response: okResponse}), httpRequestA, false},
 		"incorrect request schema":             {MatcherBySchema(Imposter{Request: requestWithSchema, Response: okResponse}), httpRequestB, false},
 		"non-existing schema file":             {MatcherBySchema(Imposter{Request: requestWithNonExistingSchema, Response: okResponse}), httpRequestB, false},
 		"empty body with required schema file": {MatcherBySchema(Imposter{Request: requestWithSchema, Response: okResponse}), &http.Request{Body: emptyBody}, false},
@@ -65,9 +66,7 @@ func TestMatcherBySchema(t *testing.T) {
 	for name, tt := range matcherData {
 		t.Run(name, func(t *testing.T) {
 			res := tt.fn(tt.req, nil)
-			if res != tt.res {
-				t.Fatalf("error while matching by request schema - expected: %t, given: %t", tt.res, res)
-			}
+			assert.Equal(t, tt.res, res)
 		})
 
 	}

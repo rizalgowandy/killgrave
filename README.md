@@ -9,33 +9,28 @@ Killgrave is a simulator for HTTP-based APIs, in simple words a **Mock Server**,
 ![Github actions](https://github.com/friendsofgo/killgrave/actions/workflows/main.yaml/badge.svg?branch=main)
 [![Version](https://img.shields.io/github/release/friendsofgo/killgrave.svg?style=flat-square)](https://github.com/friendsofgo/killgrave/releases/latest)
 [![Go Report Card](https://goreportcard.com/badge/github.com/friendsofgo/killgrave)](https://goreportcard.com/report/github.com/friendsofgo/killgrave)
-[![Total alerts](https://img.shields.io/lgtm/alerts/g/friendsofgo/killgrave.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/friendsofgo/killgrave/alerts/)
 [![FriendsOfGo](https://img.shields.io/badge/powered%20by-Friends%20of%20Go-73D7E2.svg)](https://friendsofgo.tech)
-
-<p>
-<a href="https://www.buymeacoffee.com/friendsofgo" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: auto !important;width: 100px !important;" ></a>
-</p>
 
 # Table of Content
 - [Overview](#overview)
 - [Concepts](#concepts)
     * [Imposters](#imposters)
 - [Installing](#installing)
-    * [Go Toolchain](#go-toolchain)
     * [Homebrew](#homebrew)
     * [Docker](#docker)
+    * [Compile by yourself](#compile-by-yourself)
     * [Other](#other)
 - [Getting Started](#getting-started)
-    * [Using Killgrave by command line](#using-killgrave-by-command-line)
+    * [Using Killgrave by command line](#using-killgrave-from-the-command-line)
     * [Using Killgrave by config file](#using-killgrave-by-config-file)
     * [Configure CORS](#configure-cors)
-    * [Prepare Killgrave for Proxy Mode](#prepare-killgrave-for-proxy-mode)
-    * [Create an Imposter](#create-an-imposter)
+    * [Preparing Killgrave for Proxy Mode](#preparing-killgrave-for-proxy-mode)
+    * [Creating an Imposter](#creating-an-imposter)
     * [Imposters structure](#imposters-structure)
-    * [Create an Imposter using regex](#create-an-imposter-using-regex)
-    * [Create an imposter using JSON Schema](#create-an-imposter-using-json-schema)
-    * [Create an imposter with delay](#create-an-imposter-with-delay)
-    * [Create an imposter with dynamic responses](#create-an-imposter-with-dynamic-responses)
+    * [Using regex in imposters](#using-regex-in-imposters)
+    * [Creating an imposter using JSON Schema](#creating-an-imposter-using-json-schema)
+    * [Creating an imposter with delay](#creating-an-imposter-with-delay)
+    * [Creating an imposter with dynamic responses](#creating-an-imposter-with-dynamic-responses)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -69,22 +64,12 @@ Imposters are the most important concept of the Killgrave tool. They define the 
 
 You can identify a Killgrave imposter file by its extension: `.imp.json`.
 
-You can learn more about how to configure imposters in the [Imposter Configuration Section](#imposter).
+You can learn more about how to configure imposters in the [Imposter Configuration Section](#imposters).
 
 ## Installing
 > :warning:  Even though Killgrave is a very robust tool and is being used by some companies in production environments, it's still in initial development. Therefore, 'minor' version numbers are used to signify breaking changes and 'patch' version numbers are used for non-breaking changes or bugfixing. As soon as v1.0.0 is released, Killgrave will start to use [`SemVer`](https://semver.org/) as usual.
 
 You can install Killgrave in different ways, but all of them are very simple:
-
-### Go Toolchain
-
-One of them is of course using `go install`, Killgrave is a Go project and can therefore be compiled using the `go toolchain`:
-
-```sh
-$ go install github.com/friendsofgo/killgrave/cmd/killgrave@{version}
-```
-
-`version` must be substituted by the `version` that you want to install. If left unspecified, the `main` branch will be installed.
 
 ### Homebrew 
 
@@ -101,14 +86,31 @@ $ brew install friendsofgo/tap/killgrave
 The application is also available through [Docker](https://hub.docker.com/r/friendsofgo/killgrave).
 
 ```bash
-docker run -it --rm -p 3000:3000 -v $PWD/:/home -w /home friendsofgo/killgrave -host 0.0.0.0
+docker run -it --rm -p 3000:3000 -v $PWD/:/home -w /home friendsofgo/killgrave --host 0.0.0.0
 ```
 
 `-p 3000:3000` [publishes](https://docs.docker.com/engine/reference/run/#expose-incoming-ports) port 3000 (Killgrave's default port) inside the
 container to port 3000 on the host machine.
 
-`-host 0.0.0.0` is necessary to allow Killgrave to listen and respond to requests from outside the container (the default,
+`--host 0.0.0.0` is necessary to allow Killgrave to listen and respond to requests from outside the container (the default,
 `localhost`, will not capture requests from the host network).
+
+### Compile by yourself
+
+If you want to use `Killgrave` from the source code, first you will need to clone the repository:
+
+```sh
+git clone git@github.com:friendsofgo/killgrave.git
+```
+
+Select the branch you want to use (`main` by default), and then compile `Killgrave`:
+
+```sh
+make build
+```
+
+This command will create an executable into the path `bin/killgrave`. We highly recommended the usage of this command
+to compile the software because parameters such as `version` are added to the compilation, which are necessary when reporting a bug.
 
 ### Other
 
@@ -138,24 +140,22 @@ Killgrave takes the following command line options. Killgrave is almost fully co
 ```sh
 $ killgrave -h
 
-  -config string
-        path with configuration file
-  -host string
-        if you run your server on a different host (default "localhost")
-  -imposters string
-        directory where your imposters are saved (default "imposters")
-  -port int
-        port to run the server (default 3000)
-  -secure bool
-        if you run your server using TLS (https)
-  -proxy-mode string
-        proxy mode you can choose between (all, missing or none) (default "none")
-  -proxy-url string
-        proxy url, you need to choose a proxy-mode
-  -version
-        show the _version of the application
-  -watcher
-        file watcher, reload the server with each file change
+Simple way to generate mock servers
+
+Usage:
+  killgrave [flags]
+
+Flags:
+  -c, --config string       Path to your configuration file
+  -h, --help                Help for Killgrave
+  -H, --host string         Set a different host than localhost (default "localhost")
+  -i, --imposters string    Directory where your imposters are located (default "imposters")
+  -P, --port int            Port to run the server (default 3000)
+  -m, --proxy-mode string   Proxy mode, the options are all, missing or none (default "none")
+  -u, --proxy-url string    The url where the proxy will redirect to
+  -s, --secure              Run mock server using TLS (https)
+  -v, --version             Version of Killgrave
+  -w, --watcher             File watcher will reload the server on each file change
 ```
 
 ### Using Killgrave by config file
@@ -208,7 +208,7 @@ The `watcher` configuration field is optional. With this setting you can enable 
 
 The `secure` configuration field is optional. With this setting you can run your server using TLS options with a dummy certificate, so as to make it work with the `HTTPS` protocol. Disabled by default.
 
-The option `proxy` allows you to configure the mock in proxy mode. When this mode is enabled, Killgrave will forward any unconfigured requests to another server. More information: [Proxy Section](#prepare-killgrave-for-proxy-mode)
+The option `proxy-mode` allows you to configure the mock in proxy mode. When this mode is enabled, Killgrave will forward any unconfigured requests to another server. More information: [Proxy Section](#prepare-killgrave-for-proxy-mode)
 
 ## How to use
 
@@ -392,7 +392,7 @@ In the next example, we have configured an imposter that uses regex to match an 
 ]
 ```
 
-### Create an imposter using JSON Schema
+### Creating an imposter using JSON Schema
 
 Sometimes, we need to validate our request more thoroughly. In cases like this we can
 create an imposter that only matches with a valid [json schema](https://json-schema.org/).
@@ -486,7 +486,7 @@ Then our imposter will be configured as follows:
 
 The path where the schema is located is relative to where the imposters are.
 
-### Create an imposter with delay
+### Creating an imposter with delay
 
 If we want to simulate a problem with the network, or create a more realistic response, we can use the `delay` property.
 
@@ -518,7 +518,7 @@ For example, we can modify our previous POST call to add a `delay` to determine 
 ]
 ````
 
-### Create an Imposter with dynamic responses
+### Creating an imposter with dynamic responses
 
 Killgrave allows dynamic responses. Using this feature, Killgrave can return different responses on the same endpoint.
 
